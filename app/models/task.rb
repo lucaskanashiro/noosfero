@@ -41,6 +41,8 @@ class Task < ActiveRecord::Base
 
   attr_protected :status
 
+  settings_items :email_template_id, :type => :integer
+
   def initialize(*args)
     super
     self.status = (args.first ? args.first[:status] : nil) || Task::Status::ACTIVE
@@ -269,16 +271,28 @@ class Task < ActiveRecord::Base
     end
   end
 
-  scope :pending, -> { where status: Task::Status::ACTIVE }
-  scope :hidden, -> { where status: Task::Status::HIDDEN }
-  scope :finished, -> { where status: Task::Status::FINISHED }
-  scope :canceled, -> { where status: Task::Status::CANCELLED }
-  scope :closed, -> { where status: [Task::Status::CANCELLED, Task::Status::FINISHED] }
-  scope :opened, -> { where status: [Task::Status::ACTIVE, Task::Status::HIDDEN] }
-  scope :of, -> type { where "type LIKE ?", type if type }
-  scope :order_by, -> attribute, ord { order "#{attribute} #{ord}" }
-  scope :like, -> field, value { where "LOWER(#{field}) LIKE ?", "%#{value.downcase}%" if value }
-  scope :pending_all, -> profile, filter_type, filter_text {
+  def email_template
+    @email_template ||= email_template_id.present? ? EmailTemplate.find_by_id(email_template_id) : nil
+  end
+
+  def to_liquid
+    HashWithIndifferentAccess.new({
+      :requestor => requestor,
+      :reject_explanation => reject_explanation,
+      :code => code
+    })
+  end
+
+  scope :pending, :conditions => { :status =>  Task::Status::ACTIVE }
+  scope :hidden, :conditions => { :status =>  Task::Status::HIDDEN }
+  scope :finished, :conditions => { :status =>  Task::Status::FINISHED }
+  scope :canceled, :conditions => { :status =>  Task::Status::CANCELLED }
+  scope :closed, :conditions => { :status =>  [Task::Status::CANCELLED, Task::Status::FINISHED] }
+  scope :opened, :conditions => { :status =>  [Task::Status::ACTIVE, Task::Status::HIDDEN] }
+  scope :of, lambda { |type| conditions = type ? "type LIKE '#{type}'" : "1=1"; {:conditions =>  [conditions]} }
+  scope :order_by, lambda { |attribute, ord| {:order => "#{attribute} #{ord}"} }
+  scope :like, lambda { |field, value| where("LOWER(#{field}) LIKE ?", "%#{value.downcase}%") if value}
+  scope :pending_all, lambda { |profile, filter_type, filter_text|
     self.to(profile).without_spam.pending.of(filter_type).like('data', filter_text)
   }
 

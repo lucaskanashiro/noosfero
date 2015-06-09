@@ -11,7 +11,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 20160309122141) do
+ActiveRecord::Schema.define(version: 20160311184534) do
 
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
@@ -355,6 +355,17 @@ ActiveRecord::Schema.define(version: 20160309122141) do
   add_index "domains", ["name"], name: "index_domains_on_name", using: :btree
   add_index "domains", ["owner_id", "owner_type", "is_default"], name: "index_domains_on_owner_id_and_owner_type_and_is_default", using: :btree
   add_index "domains", ["owner_id", "owner_type"], name: "index_domains_on_owner_id_and_owner_type", using: :btree
+
+  create_table "email_templates", force: :cascade do |t|
+    t.string   "name"
+    t.string   "template_type"
+    t.string   "subject"
+    t.text     "body"
+    t.integer  "owner_id"
+    t.string   "owner_type"
+    t.datetime "created_at"
+    t.datetime "updated_at"
+  end
 
   create_table "environments", force: :cascade do |t|
     t.string   "name"
