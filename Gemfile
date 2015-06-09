@@ -38,6 +38,7 @@ gem 'grape-entity'
 gem 'grape_logging'
 gem 'rack-cors'
 gem 'rack-contrib'
+gem 'liquid',                    '~> 3.0.3'
 
 # asset pipeline
 gem 'uglifier', '>= 1.0.3'

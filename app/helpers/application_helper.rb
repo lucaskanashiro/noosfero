@@ -50,6 +50,8 @@ module ApplicationHelper
 
   include ButtonsHelper
 
+  include TaskHelper
+
   def locale
     (@page && !@page.language.blank?) ? @page.language : FastGettext.locale
   end
