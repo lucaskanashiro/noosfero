@@ -6,6 +6,8 @@ class ProfileController < PublicController
   before_filter :login_required, :only => [:add, :join, :leave, :unblock, :leave_scrap, :remove_scrap, :remove_activity, :view_more_activities, :view_more_network_activities, :report_abuse, :register_report, :leave_comment_on_activity, :send_mail]
 
   helper TagsHelper
+  helper ActionTrackerHelper
+  helper CustomFieldsHelper
 
   protect 'send_mail_to_members', :profile, :only => [:send_mail]
 
@@ -36,7 +38,7 @@ class ProfileController < PublicController
 
   def tag_feed
     @tag = params[:id]
-    tagged = profile.articles.paginate(:per_page => 20, :page => 1, :order => 'published_at DESC', :include => :tags, :conditions => ['tags.name LIKE ?', @tag])
+    tagged = profile.articles.paginate(:per_page => 20, :page => 1).order('published_at DESC').joins(:tags).where('tags.name LIKE ?', @tag)
     feed_writer = FeedWriter.new
     data = feed_writer.write(
       tagged,
@@ -65,7 +67,10 @@ class ProfileController < PublicController
 
   def members
     if is_cache_expired?(profile.members_cache_key(params))
-      @members = profile.members_by_name.includes(relations_to_include).paginate(:per_page => members_per_page, :page => params[:npage], :total_entries => profile.members.count)
+      sort = (params[:sort] == 'desc') ? params[:sort] : 'asc'
+      @profile_admins = profile.admins.includes(relations_to_include).order("name #{sort}").paginate(:per_page => members_per_page, :page => params[:npage])
+      @profile_members = profile.members.includes(relations_to_include).order("name #{sort}").paginate(:per_page => members_per_page, :page => params[:npage])
+      @profile_members_url = url_for(:controller => 'profile', :action => 'members')
     end
   end
 
@@ -150,6 +155,18 @@ class ProfileController < PublicController
     end
   end
 
+  def follow_article
+    article = profile.environment.articles.find params[:article_id]
+    article.person_followers << user
+    redirect_to article.url
+  end
+
+  def unfollow_article
+    article = profile.environment.articles.find params[:article_id]
+    article.person_followers.delete(user)
+    redirect_to article.url
+  end
+
   def unblock
     if current_user.person.is_admin?(profile.environment)
       profile.unblock
@@ -201,7 +218,7 @@ class ProfileController < PublicController
 
   def more_comments
     profile_filter = @profile.person? ? {:user_id => @profile} : {:target_id => @profile}
-    activity = ActionTracker::Record.find(:first, :conditions => {:id => params[:activity]}.merge(profile_filter))
+    activity = ActionTracker::Record.where({:id => params[:activity]}.merge profile_filter).first
     comments_count = activity.comments.count
     comment_page = (params[:comment_page] || 1).to_i
     comments_per_page = 5
@@ -221,7 +238,7 @@ class ProfileController < PublicController
   end
 
   def more_replies
-    activity = Scrap.find(:first, :conditions => {:id => params[:activity], :receiver_id => @profile, :scrap_id => nil})
+    activity = Scrap.where(:id => params[:activity], :receiver_id => @profile, :scrap_id => nil).first
     comments_count = activity.replies.count
     comment_page = (params[:comment_page] || 1).to_i
     comments_per_page = 5
@@ -268,7 +285,7 @@ class ProfileController < PublicController
   def remove_notification
     begin
       raise if !can_edit_profile
-      notification = ActionTrackerNotification.find(:first, :conditions => {:profile_id => profile.id, :action_tracker_id => params[:activity_id]})
+      notification = ActionTrackerNotification.where(profile_id: profile.id, action_tracker_id: params[:activity_id]).first
       notification.destroy
       render :text => _('Notification successfully removed.')
     rescue

@@ -12,7 +12,7 @@ class TextileArticle < TextArticle
     convert_to_html(body)
   end
 
-  def lead
+  def lead(length = nil)
     if abstract.blank?
       super
     else
@@ -21,6 +21,10 @@ class TextileArticle < TextArticle
   end
 
   def notifiable?
+    true
+  end
+
+  def can_display_media_panel?
     true
   end
 

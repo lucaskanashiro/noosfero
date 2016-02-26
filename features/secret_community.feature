@@ -17,6 +17,7 @@ Feature: Use a secret community
     And I check "Secret"
     And I press "Save"
     And I follow "Logout"
+    And I go to /account/login
 
   @selenium
   Scenario: Hide privacity options when secret is checked
@@ -33,7 +34,7 @@ Feature: Use a secret community
   Scenario: Non members shouldn't see secret communit's content
     Given I am logged in as "maria"
     And I go to mycommunity's homepage
-    And I should see "Access denied"
+    And I should see "Oops ... you cannot go ahead here"
     And I follow "Communities"
     Then I should not see "My Community"
 

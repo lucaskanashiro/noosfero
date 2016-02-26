@@ -1,4 +1,4 @@
-require File.dirname(__FILE__) + '/../test_helper'
+require_relative '../test_helper'
 
 class MembersBlockTest < ActionView::TestCase
 
@@ -147,11 +147,11 @@ class MembersBlockTest < ActionView::TestCase
 
     instance_eval(&block.footer)
     assert_select 'a.view-all' do |elements|
-      assert_select '[href=/profile/mytestuser/plugin/people_block/members]'
+      assert_select "[href=/profile/mytestuser/members#members-tab]"
     end
   end
 
-  should 'provide link to members page with a selected role' do
+  should 'provide link to members page when visible_role is profile_member' do
     profile = create_user('mytestuser').person
     block = MembersBlock.new
     block.box = profile.boxes.first
@@ -160,7 +160,33 @@ class MembersBlockTest < ActionView::TestCase
 
     instance_eval(&block.footer)
     assert_select 'a.view-all' do |elements|
-      assert_select '[href=/profile/mytestuser/plugin/people_block/members?role_key=profile_member]'
+      assert_select '[href=/profile/mytestuser/members#members-tab]'
+    end
+  end
+
+  should 'provide link to members page when visible_role is profile_moderator' do
+    profile = create_user('mytestuser').person
+    block = MembersBlock.new
+    block.box = profile.boxes.first
+    block.visible_role = 'profile_moderator'
+    block.save!
+
+    instance_eval(&block.footer)
+    assert_select 'a.view-all' do |elements|
+      assert_select '[href=/profile/mytestuser/members#members-tab]'
+    end
+  end
+
+  should 'provide link to admins page when visible_role is profile_admin' do
+    profile = create_user('mytestuser').person
+    block = MembersBlock.new
+    block.box = profile.boxes.first
+    block.visible_role = 'profile_admin'
+    block.save!
+
+    instance_eval(&block.footer)
+    assert_select 'a.view-all' do |elements|
+      assert_select '[href=/profile/mytestuser/members#admins-tab]'
     end
   end
 
@@ -214,6 +240,10 @@ class MembersBlockTest < ActionView::TestCase
 
     assert_includes profiles, profile1
     assert_not_includes profiles, profile2
+
+    profile_list = block.profile_list
+    assert_includes profile_list, profile1
+    assert_not_includes profile_list, profile2
   end
 
   should 'list only profiles with member role' do
@@ -235,6 +265,10 @@ class MembersBlockTest < ActionView::TestCase
 
     assert_not_includes profiles, profile1
     assert_includes profiles, profile2
+
+    profile_list = block.profile_list
+    assert_not_includes profile_list, profile1
+    assert_includes profile_list, profile2
   end
 
   should 'list available roles' do
@@ -244,6 +278,21 @@ class MembersBlockTest < ActionView::TestCase
     assert_includes block.roles, Profile::Roles.member(owner.environment.id)
     assert_includes block.roles, Profile::Roles.admin(owner.environment.id)
     assert_includes block.roles, Profile::Roles.moderator(owner.environment.id)
+  end
+
+  should 'count number of profiles by role' do
+    owner = fast_create(Community)
+    profile1 = fast_create(Person, {:public_profile => true})
+    profile2 = fast_create(Person, {:public_profile => true})
+
+    owner.add_member profile2
+    owner.add_moderator profile1
+
+    block = MembersBlock.new
+    block.visible_role = Profile::Roles.moderator(owner.environment.id).key
+    block.expects(:owner).returns(owner).at_least_once
+
+    assert_equivalent [profile1], block.profile_list
   end
 
   protected

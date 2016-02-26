@@ -57,7 +57,7 @@ class Noosfero::Plugin::Manager
 
   def pipeline(event, *args)
     each do |plugin|
-      result = plugin.send(event, *args)
+      result = Array(plugin.send event, *args)
       result = result.kind_of?(Array) ? result : [result]
       raise ArgumentError, "Pipeline broken by #{plugin.class.name} on #{event} with #{result.length} arguments instead of #{args.length}." if result.length != args.length
       args = result
@@ -76,7 +76,7 @@ class Noosfero::Plugin::Manager
 
   def enabled_plugins
     @enabled_plugins ||= (Noosfero::Plugin.all & environment.enabled_plugins).map do |plugin|
-      plugin.constantize.new(context)
+      Noosfero::Plugin.load_plugin_identifier(plugin).new context
     end
   end
 

@@ -29,7 +29,7 @@ Feature: categories_block
   @selenium
   Scenario: List just product categories
     Given display ".button-bar"
-    And I follow "Edit" within ".categories-block"
+    And I follow "Edit" within ".block-outer .categories-block"
     And I check "Product"
     When I press "Save"
     Then I should see "Food"
@@ -41,9 +41,10 @@ Feature: categories_block
   @selenium
   Scenario: Show submenu if it exists
     Given display ".button-bar"
-    And I follow "Edit" within ".categories-block"
+    And I follow "Edit" within ".block-outer .categories-block"
     And I check "Product"
     And I press "Save"
+    And I go to /
     Then I should see "Food"
     And I should see "Book"
     And "Vegetarian" should not be visible within "span#category-name"
@@ -59,9 +60,10 @@ Feature: categories_block
   @selenium
   Scenario: Show only one submenu per time
     Given display ".button-bar"
-    And I follow "Edit" within ".categories-block"
+    And I follow "Edit" within ".block-outer .categories-block"
     And I check "Product"
     And I press "Save"
+    And I go to /
     Then I should see "Book"
     And "Literature" should not be visible within "span#category-name"
     When I follow "block_2_category_2"
@@ -70,7 +72,7 @@ Feature: categories_block
   @selenium
   Scenario: List just general categories
     Given display ".button-bar"
-    And I follow "Edit" within ".categories-block"
+    And I follow "Edit" within ".block-outer .categories-block"
     And I check "Generic category"
     When I press "Save"
     Then I should see "Wood"
@@ -78,7 +80,7 @@ Feature: categories_block
   @selenium
   Scenario: List just regions
     Given display ".button-bar"
-    And I follow "Edit" within ".categories-block"
+    And I follow "Edit" within ".block-outer .categories-block"
     And I check "Region"
     When I press "Save"
     Then I should see "Bahia"

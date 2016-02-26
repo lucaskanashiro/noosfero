@@ -1,8 +1,5 @@
-require File.dirname(__FILE__) + '/../../../../test/test_helper'
-require File.dirname(__FILE__) + '/../../../../app/controllers/public/invite_controller'
-
-# Re-raise errors caught by the controller.
-class InviteController; def rescue_action(e) raise e end; end
+require 'test_helper'
+require_relative '../../../../app/controllers/public/invite_controller'
 
 class InviteControllerTest < ActionController::TestCase
 
@@ -57,7 +54,7 @@ class InviteControllerTest < ActionController::TestCase
     organization.add_admin(admin)
 
     login_as(admin.identifier)
-    get :search_friend, :profile => organization.identifier, :q => '1234'
+    get :search, :profile => organization.identifier, :q => '1234'
 
     assert_equal [{"id" => person.id, "name" => person.name}].to_json, @response.body
     assert_response 200

@@ -2,10 +2,13 @@ class AccountController < ApplicationController
 
   no_design_blocks
 
-  before_filter :login_required, :only => [:activation_question, :accept_terms, :activate_enterprise, :change_password]
+  before_filter :login_required, :require_login_for_environment, :only => [:activation_question, :accept_terms, :activate_enterprise, :change_password]
   before_filter :redirect_if_logged_in, :only => [:login, :signup]
   before_filter :protect_from_bots, :only => :signup
 
+  protect_from_forgery except: [:login]
+
+  helper CustomFieldsHelper
   # say something nice, you goof!  something sweet.
   def index
     unless logged_in?
@@ -16,7 +19,7 @@ class AccountController < ApplicationController
   def activate
     @user = User.find_by_activation_code(params[:activation_code]) if params[:activation_code]
     if @user
-      unless @user.environment.enabled?('admin_must_approve_new_users') 
+      unless @user.environment.enabled?('admin_must_approve_new_users')
         if @user.activate
           @message = _("Your account has been activated, now you can log in!")
           check_redirection
@@ -30,7 +33,7 @@ class AccountController < ApplicationController
           @user.activation_code = nil
           @user.save!
           redirect_to :controller => :home
-        end      
+        end
       end
     else
       session[:notice] = _("It looks like you're trying to activate an account. Perhaps have already activated this account?")
@@ -46,14 +49,20 @@ class AccountController < ApplicationController
 
     self.current_user = plugins_alternative_authentication
 
-    self.current_user ||= User.authenticate(params[:user][:login], params[:user][:password], environment) if params[:user]
-
+    begin
+      self.current_user ||= User.authenticate(params[:user][:login], params[:user][:password], environment) if params[:user]
+    rescue User::UserNotActivated => e
+      session[:notice] = e.message
+      return
+    end
     if logged_in?
       check_join_in_community(self.current_user)
+
       if params[:remember_me] == "1"
         self.current_user.remember_me
-        cookies[:auth_token] = { :value => self.current_user.remember_token , :expires => self.current_user.remember_token_expires_at }
+        cookies[:auth_token] = {value: self.current_user.remember_token, expires: self.current_user.remember_token_expires_at}
       end
+
       if redirect?
         go_to_initial_page
         session[:notice] = _("Logged in successfully")
@@ -91,11 +100,9 @@ class AccountController < ApplicationController
     @block_bot = !!session[:may_be_a_bot]
     @invitation_code = params[:invitation_code]
     begin
-      @user = User.new(params[:user])
-      @user.terms_of_use = environment.terms_of_use
-      @user.environment = environment
+      @user = User.build(params[:user], params[:profile_data], environment)
+      @user.session = session
       @terms_of_use = environment.terms_of_use
-      @user.person_data = params[:profile_data]
       @user.return_to = session[:return_to]
       @person = Person.new(params[:profile_data])
       @person.environment = @user.environment
@@ -113,9 +120,9 @@ class AccountController < ApplicationController
           @user.signup!
           owner_role = Role.find_by_name('owner')
           @user.person.affiliate(@user.person, [owner_role]) if owner_role
-          invitation = Task.find_by_code(@invitation_code)
+          invitation = Task.from_code(@invitation_code).first
           if invitation
-            invitation.update_attributes!({:friend => @user.person})
+            invitation.update! friend: @user.person
             invitation.finish
           end
 
@@ -182,6 +189,11 @@ class AccountController < ApplicationController
 
     if request.post?
       begin
+        unless verify_recaptcha
+          @change_password.errors.add(:base, _('Please type the captcha text correctly'))
+          return false
+        end
+
         requestors = fetch_requestors(params[:value])
         raise ActiveRecord::RecordNotFound if requestors.blank? || params[:value].blank?
 
@@ -205,7 +217,7 @@ class AccountController < ApplicationController
   #
   # Posts back.
   def new_password
-    @change_password = ChangePassword.find_by_code(params[:code])
+    @change_password = ChangePassword.from_code(params[:code]).first
 
     unless @change_password
       render :action => 'invalid_change_password_code', :status => 403
@@ -214,7 +226,7 @@ class AccountController < ApplicationController
 
     if request.post?
       begin
-        @change_password.update_attributes!(params[:change_password])
+        @change_password.update!(params[:change_password])
         @change_password.finish
         render :action => 'new_password_ok'
       rescue ActiveRecord::RecordInvalid => e
@@ -398,7 +410,7 @@ class AccountController < ApplicationController
   end
 
   def load_enterprise_activation
-    @enterprise_activation ||= EnterpriseActivation.find_by_code(params[:enterprise_code])
+    @enterprise_activation ||= EnterpriseActivation.from_code(params[:enterprise_code]).first
   end
 
   def load_enterprise
@@ -422,7 +434,7 @@ class AccountController < ApplicationController
 
   def go_to_initial_page
     if params[:return_to]
-      redirect_to params[:return_to]
+      redirect_to url_for(params[:return_to])
     elsif environment.enabled?('allow_change_of_redirection_after_login')
       check_redirection_options(user, user.preferred_login_redirection, user.admin_url)
     else
@@ -435,7 +447,7 @@ class AccountController < ApplicationController
   end
 
   def go_to_signup_initial_page
-    check_redirection_options(user, user.environment.redirection_after_signup, user.url)
+    check_redirection_options user, user.environment.redirection_after_signup, user.url, signup: true
   end
 
   def redirect_if_logged_in
@@ -455,8 +467,11 @@ class AccountController < ApplicationController
 
   protected
 
-  def check_redirection_options(user, condition, default)
-    case condition
+  def check_redirection_options user, condition, default, options={}
+    if options[:signup] and target = session.delete(:after_signup_redirect_to)
+      redirect_to target
+    else
+      case condition
       when 'keep_on_same_page'
         redirect_back_or_default(user.admin_url)
       when 'site_homepage'
@@ -469,15 +484,18 @@ class AccountController < ApplicationController
         redirect_to user.admin_url
       when 'welcome_page'
         redirect_to :controller => :home, :action => :welcome, :template_id => (user.template && user.template.id)
-    else
-      redirect_back_or_default(default)
+      when 'custom_url'
+        if (url = user.custom_url_redirection).present? then redirect_to url else redirect_back_or_default default end
+      else
+        redirect_back_or_default(default)
+      end
     end
   end
 
   def check_redirection
     unless params[:redirection].blank?
       session[:return_to] = @user.return_to
-      @user.update_attributes(:return_to => nil)
+      @user.update(:return_to => nil)
     end
   end
 

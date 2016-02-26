@@ -1,4 +1,4 @@
-require File.dirname(__FILE__) + '/../test_helper'
+require_relative '../test_helper'
 require "#{File.dirname(__FILE__)}/../../lib/acts_as_faceted"
 
 
@@ -69,7 +69,7 @@ class ActsAsFacetedTest < ActiveSupport::TestCase
 
   should 'show facets option for solr' do
     assert TestModel.facets_option_for_solr.include?(:f_type)
-    assert !TestModel.facets_option_for_solr.include?(:f_published_at)
+    refute TestModel.facets_option_for_solr.include?(:f_published_at)
   end
 
   should 'show facets fields for solr' do

@@ -15,16 +15,15 @@ class Enterprise < Organization
 
   N_('Enterprise')
 
-  has_many :products, :foreign_key => :profile_id, :dependent => :destroy, :order => 'name ASC'
+  acts_as_trackable after_add: proc{ |p, t| notify_activity t }
+
+  has_many :products, :foreign_key => :profile_id, :dependent => :destroy
+  has_many :product_categories, :through => :products
   has_many :inputs, :through => :products
   has_many :production_costs, :as => :owner
 
   has_many :favorite_enterprise_people
-  has_many :fans, through: :favorite_enterprise_people, source: :person
-
-  def product_categories
-    ProductCategory.by_enterprise(self)
-  end
+  has_many :fans, source: :person, through: :favorite_enterprise_people
 
   N_('Organization website'); N_('Historic and current context'); N_('Activities short description'); N_('City'); N_('State'); N_('Country'); N_('ZIP code')
 
@@ -68,7 +67,7 @@ class Enterprise < Organization
   end
 
   def highlighted_products_with_image(options = {})
-    Product.find(:all, {:conditions => {:highlighted => true}, :joins => :image}.merge(options))
+    Product.where(:highlighted => true).joins(:image)
   end
 
   def required_fields
@@ -194,10 +193,6 @@ class Enterprise < Organization
     true
   end
 
-  def activities
-    Scrap.find_by_sql("SELECT id, updated_at, 'Scrap' AS klass FROM scraps WHERE scraps.receiver_id = #{self.id} AND scraps.scrap_id IS NULL UNION SELECT id, updated_at, 'ActionTracker::Record' AS klass FROM action_tracker WHERE action_tracker.target_id = #{self.id} UNION SELECT action_tracker.id, action_tracker.updated_at, 'ActionTracker::Record' AS klass FROM action_tracker INNER JOIN articles ON action_tracker.target_id = articles.id WHERE articles.profile_id = #{self.id} AND action_tracker.target_type = 'Article' ORDER BY updated_at DESC")
-  end
-
   def catalog_url
     { :profile => identifier, :controller => 'catalog'}
   end
@@ -205,5 +200,10 @@ class Enterprise < Organization
   def more_recent_label
     ''
   end
+
+  def followed_by? person
+    super or self.fans.where(id: person.id).count > 0
+  end
+
 
 end

@@ -73,14 +73,14 @@ class ChatControllerTest < ActionController::TestCase
   end
 
   should 'not update presence status from non-ajax requests' do
-    @person.user.expects(:update_attributes).never
+    @person.user.expects(:update).never
     @controller.stubs(:current_user).returns(@person.user)
     get :update_presence_status
     assert_template nil
   end
 
   should 'update presence status from ajax requests' do
-    @person.user.expects(:update_attributes).once
+    @person.user.expects(:update).once
     @controller.stubs(:current_user).returns(@person.user)
     @request.stubs(:xhr?).returns(true)
     get :update_presence_status
@@ -93,6 +93,54 @@ class ChatControllerTest < ActionController::TestCase
     chat_status_at = @person.user.chat_status_at
     get :update_presence_status
     assert_not_equal chat_status_at, @person.user.chat_status_at
+  end
+
+  should 'forbid to register a message without to' do
+    @controller.stubs(:current_user).returns(@person.user)
+    @request.stubs(:xhr?).returns(true)
+
+    post :save_message, {:body =>'Hello!'}
+    assert_equal 3, ActiveSupport::JSON.decode(@response.body)['status']
+  end
+
+  should 'forbid to register a message without body' do
+    @controller.stubs(:current_user).returns(@person.user)
+    @request.stubs(:xhr?).returns(true)
+
+    post :save_message, {:to =>'mary'}
+    assert_equal 3, ActiveSupport::JSON.decode(@response.body)['status']
+  end
+
+  should 'forbid user to register a message to a stranger' do
+    @controller.stubs(:current_user).returns(@person.user)
+    @request.stubs(:xhr?).returns(true)
+
+    post :save_message, {:to =>'random', :body => 'Hello, stranger!'}
+    assert_equal 3, ActiveSupport::JSON.decode(@response.body)['status']
+  end
+
+  should 'register a message to a friend' do
+    @controller.stubs(:current_user).returns(@person.user)
+    friend = create_user('friend').person
+    @person.add_friend friend
+    @request.stubs(:xhr?).returns(true)
+
+    assert_difference 'ChatMessage.count', 1 do
+      post :save_message, {:to => friend.identifier, :body => 'Hey! How is it going?'}
+      assert ActiveSupport::JSON.decode(@response.body)['status'] == 0
+    end
+  end
+
+  should 'register a message to a group' do
+    @controller.stubs(:current_user).returns(@person.user)
+    group = fast_create(Organization)
+    group.add_member(@person)
+    @request.stubs(:xhr?).returns(true)
+
+    assert_difference 'ChatMessage.count', 1 do
+      post :save_message, {:to => group.identifier, :body => 'Hey! How is it going?'}
+      assert ActiveSupport::JSON.decode(@response.body)['status'] == 0
+    end
   end
 
   should 'toggle chat status' do

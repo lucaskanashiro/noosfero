@@ -26,17 +26,17 @@ class EventPlugin::EventBlock < Block
   end
 
   def events(user = nil)
-    events = events_source.events
-    events = events.published.order('start_date')
+    events = events_source.events.order('start_date')
+    events = user.nil? ? events.is_public : events.display_filter(user,nil)
 
     if future_only
-      events = events.where('start_date >= ?', Date.today)
+      events = events.where('start_date >= ?', DateTime.now.beginning_of_day)
     end
 
     if date_distance_limit > 0
       events = events.by_range([
-        Date.today - date_distance_limit,
-        Date.today + date_distance_limit
+        DateTime.now.beginning_of_day - date_distance_limit,
+        DateTime.now.beginning_of_day + date_distance_limit
       ])
     end
 
@@ -79,6 +79,10 @@ class EventPlugin::EventBlock < Block
     content_tag(:span, month_name(date.month, true), :class => 'month') +
     content_tag(:span, date.day.to_s, :class => 'day') +
     content_tag(:span, date.year.to_s, :class => 'year')
+  end
+
+  def self.expire_on
+      { :profile => [:article], :environment => [:article] }
   end
 
 end

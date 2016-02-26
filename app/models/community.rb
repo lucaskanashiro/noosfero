@@ -1,6 +1,7 @@
 class Community < Organization
 
-  attr_accessible :accessor_id, :accessor_type, :role_id, :resource_id, :resource_type, :address_reference, :district, :tag_list, :language
+  attr_accessible :accessor_id, :accessor_type, :role_id, :resource_id, :resource_type
+  attr_accessible :address_reference, :district, :tag_list, :language, :description
   after_destroy :check_invite_member_for_destroy
 
   def self.type_name
@@ -28,11 +29,11 @@ class Community < Organization
   # places that call this method are safe from mass-assignment by setting the
   # environment key themselves.
   def self.create_after_moderation(requestor, attributes = {})
-    environment = attributes.delete(:environment)
+    environment = attributes[:environment]
     community = Community.new(attributes)
     community.environment = environment
     if community.environment.enabled?('admin_must_approve_new_communities')
-      CreateCommunity.create!(attributes.merge(:requestor => requestor, :environment => environment))
+      CreateCommunity.create!(attributes.merge(:requestor => requestor, :environment => environment).except(:custom_values))
     else
       community.save!
       community.add_admin(requestor)
@@ -86,8 +87,8 @@ class Community < Organization
     {:title => _('Community Info and settings'), :icon => 'edit-profile-group'}
   end
 
-  def activities
-    Scrap.find_by_sql("SELECT id, updated_at, '#{Scrap.to_s}' AS klass FROM #{Scrap.table_name} WHERE scraps.receiver_id = #{self.id} AND scraps.scrap_id IS NULL UNION SELECT id, updated_at, '#{ActionTracker::Record.to_s}' AS klass FROM #{ActionTracker::Record.table_name} WHERE action_tracker.target_id = #{self.id} and action_tracker.verb != 'join_community' and action_tracker.verb != 'leave_scrap' UNION SELECT at.id, at.updated_at, '#{ActionTracker::Record.to_s}' AS klass FROM #{ActionTracker::Record.table_name} at INNER JOIN articles a ON at.target_id = a.id WHERE a.profile_id = #{self.id} AND at.target_type = 'Article' ORDER BY updated_at DESC")
+  def exclude_verbs_on_activities
+    %w[join_community leave_scrap]
   end
 
 end

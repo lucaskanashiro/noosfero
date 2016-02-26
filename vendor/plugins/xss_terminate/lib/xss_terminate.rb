@@ -1,4 +1,6 @@
 module XssTerminate
+  ALLOWED_CORE_ATTRIBUTES = %w(name href cite class title src xml:lang height datetime alt abbr width)
+  ALLOWED_CUSTOM_ATTRIBUTES = %w(data-macro)
 
   def self.sanitize_by_default=(value)
     @@sanitize_by_default = value
@@ -38,36 +40,26 @@ module XssTerminate
 
   module InstanceMethods
 
-    def sanitize_field(sanitizer, field, serialized = false, with= :full)
+    def sanitize_allowed_attributes
+      ALLOWED_CORE_ATTRIBUTES | ALLOWED_CUSTOM_ATTRIBUTES
+    end
+
+    def sanitize_field(sanitizer, field, serialized = false)
       field = field.to_sym
       if serialized
         puts field
         self[field].each_key { |key|
           key = key.to_sym
-          self[field][key] = sanitizer.sanitize(self[field][key])
+          self[field][key] = sanitizer.sanitize(self[field][key], scrubber: Rails::Html::PermitScrubber.new, encode_special_chars: false, attributes: sanitize_allowed_attributes)
         }
       else
         if self[field]
-          self[field] = sanitizer.sanitize(self[field])
-
-          if with == :full
-            self[field] = CGI.escapeHTML(self[field])
-          elsif with == :white_list
-            self[field] = CGI.escapeHTML(self[field]) if !wellformed_html_code?(self[field])
-          end
-
+          self[field] = sanitizer.sanitize(self[field], scrubber: Rails::Html::PermitScrubber.new, encode_special_chars: false, attributes: sanitize_allowed_attributes)
         else
           value = self.send("#{field}")
           return unless value
-          value = sanitizer.sanitize(value)
+          value = sanitizer.sanitize(value, scrubber: Rails::Html::PermitScrubber.new, encode_special_chars: false, attributes: sanitize_allowed_attributes)
           self.send("#{field}=", value)
-
-          if with == :full
-            self.send("#{field}=", CGI.escapeHTML(value))
-          elsif with == :white_list
-            self.send("#{field}=", CGI.escapeHTML(value)) if !wellformed_html_code?(value)
-          end
-
         end
       end
     end
@@ -83,18 +75,18 @@ module XssTerminate
     end
 
     def sanitize_fields_with_full
-      sanitizer = ActionView::Base.full_sanitizer
+      sanitizer = Rails::Html::FullSanitizer.new
       columns, columns_serialized = sanitize_columns(:full)
       columns.each do |column|
-        sanitize_field(sanitizer, column.to_sym, columns_serialized.include?(column), :full)
+        sanitize_field(sanitizer, column.to_sym, columns_serialized.include?(column))
       end
     end
 
     def sanitize_fields_with_white_list
-      sanitizer = ActionView::Base.white_list_sanitizer
+      sanitizer = Rails::Html::WhiteListSanitizer.new
       columns, columns_serialized = sanitize_columns(:white_list)
       columns.each do |column|
-        sanitize_field(sanitizer, column.to_sym, columns_serialized.include?(column), :white_list)
+        sanitize_field(sanitizer, column.to_sym, columns_serialized.include?(column))
       end
    end
 
@@ -102,38 +94,8 @@ module XssTerminate
       sanitizer = HTML5libSanitize.new
       columns = sanitize_columns(:html5lib)
       columns.each do |column|
-        sanitize_field(sanitizer, column.to_sym, columns_serialized.include?(column), :html5lib)
+        sanitize_field(sanitizer, column.to_sym, columns_serialized.include?(column))
       end
-    end
-
-    def wellformed_html_code?(field)
-      return true if !field
-      counter = 0
-      in_comment = false
-      field=field.split(//)
-      for i in 0..field.length-1
-        if !in_comment
-          if field[i] == '<'
-            if field[i+1..i+3] == ["!","-","-"]
-              in_comment = true
-            else
-              counter += 1
-            end
-          elsif field[i] == '>'
-            counter -= 1
-          end
-        else
-          if field[i-2..i] == ["-","-",">"]
-            in_comment = false
-          end
-        end
-
-        if counter < 0 || 1 < counter
-          return false
-        end
-      end
-
-      return counter == 0
     end
 
   end

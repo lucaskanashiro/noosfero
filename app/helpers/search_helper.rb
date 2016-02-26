@@ -5,24 +5,21 @@ module SearchHelper
   BLOCKS_SEARCH_LIMIT = 24
   MULTIPLE_SEARCH_LIMIT = 8
 
-  FILTERS_TRANSLATIONS = {
-    :order => _('Order'),
-    :display => _('Display')
-  }
-
-  FILTERS_OPTIONS_TRANSLATION = {
-    :order => {
-      'more_popular' => _('More popular'),
-      'more_active' => _('More active'),
-      'more_recent' => _('More recent'),
-      'more_comments' => _('More comments')
-    },
-    :display => {
-      'map' => _('Map'),
-      'full' => _('Full'),
-      'compact' => _('Compact')
+  def filters_options_translation
+    @filters_options_translation ||= {
+      :order => {
+        'more_popular' => _('More popular'),
+        'more_active' => _('More active'),
+        'more_recent' => _('More recent'),
+        'more_comments' => _('More comments')
+      },
+      :display => {
+        'map' => _('Map'),
+        'full' => _('Full'),
+        'compact' => _('Compact')
+      }
     }
-  }
+  end
 
   COMMON_PROFILE_LIST_BLOCK = [
     :enterprises,
@@ -100,10 +97,14 @@ module SearchHelper
     if options.size <= 1
       return
     else
-      options = options.map {|option| [FILTERS_OPTIONS_TRANSLATION[name][option], option]}
+      options = options.map {|option| [filters_options_translation[name][option], option]}
       options = options_for_select(options, :selected => (params[name] || default))
       select_tag(name, options)
     end
+  end
+
+  def city_with_state_for_profile(p)
+    city_with_state(p.region) || [p.city, p.state].compact.reject(&:blank?).join(', ')
   end
 
   def display_selector(asset, display, float = 'right')

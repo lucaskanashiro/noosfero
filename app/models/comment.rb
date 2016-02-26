@@ -6,19 +6,22 @@ class Comment < ActiveRecord::Base
     :body => {:label => _('Content'), :weight => 2},
   }
 
-  attr_accessible :body, :author, :name, :email, :title, :reply_of_id, :source
+  attr_accessible :body, :author, :name, :email, :title, :reply_of_id, :source, :follow_article
 
   validates_presence_of :body
 
   belongs_to :source, :counter_cache => true, :polymorphic => true
   alias :article :source
   alias :article= :source=
+  attr_accessor :follow_article
 
   belongs_to :author, :class_name => 'Person', :foreign_key => 'author_id'
   has_many :children, :class_name => 'Comment', :foreign_key => 'reply_of_id', :dependent => :destroy
   belongs_to :reply_of, :class_name => 'Comment', :foreign_key => 'reply_of_id'
 
-  scope :without_reply, :conditions => ['reply_of_id IS NULL']
+  scope :without_reply, -> { where 'reply_of_id IS NULL' }
+
+  include TimeScopes
 
   # unauthenticated authors:
   validates_presence_of :name, :if => (lambda { |record| !record.email.blank? })
@@ -36,6 +39,8 @@ class Comment < ActiveRecord::Base
   acts_as_having_settings
 
   xss_terminate :only => [ :body, :title, :name ], :on => 'validation'
+
+  acts_as_voteable
 
   def comment_root
     (reply_of && reply_of.comment_root) || self
@@ -65,6 +70,11 @@ class Comment < ActiveRecord::Base
     author ? author.url : nil
   end
 
+  #FIXME make this test
+  def author_custom_image(size = :icon)
+    author ? author.profile_custom_image(size) : nil
+  end
+
   def url
     article.view_url.merge(:anchor => anchor)
   end
@@ -91,10 +101,9 @@ class Comment < ActiveRecord::Base
 
   after_create :new_follower
   def new_follower
-    if source.kind_of?(Article)
-      article.followers += [author_email]
-      article.followers -= article.profile.notification_emails
-      article.followers.uniq!
+    if source.kind_of?(Article) and !author.nil? and @follow_article
+      article.person_followers += [author]
+      article.person_followers.uniq!
       article.save
     end
   end
@@ -136,7 +145,7 @@ class Comment < ActiveRecord::Base
       if !notification_emails.empty?
         CommentNotifier.notification(self).deliver
       end
-      emails = article.followers - [author_email]
+      emails = article.person_followers_email_list - [author_email]
       if !emails.empty?
         CommentNotifier.mail_to_followers(self, emails).deliver
       end

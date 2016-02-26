@@ -104,13 +104,13 @@ class FeedHandlerTest < ActiveSupport::TestCase
 
       # in the first 4 errors, we are ok
       4.times { handler.process(container) }
-      assert !container.error_message.blank?, 'should set the error message for the first <max_errors> errors (%s)' % container_class
+      refute container.error_message.blank?, 'should set the error message for the first <max_errors> errors (%s)' % container_class
       assert container.enabled, 'must keep container enabled during the first <max_errors> errors (%s)' % container_class
 
       # 5 errors it too much
       handler.process(container)
-      assert !container.error_message.blank?, 'must set error message in container after <max_errors> errors (%s)' % container_class
-      assert !container.enabled, 'must disable continer after <max_errors> errors (%s)' % container_class
+      refute container.error_message.blank?, 'must set error message in container after <max_errors> errors (%s)' % container_class
+      refute container.enabled, 'must disable continer after <max_errors> errors (%s)' % container_class
     end
 
     should "reenable after <disabled_period> (#{container_class})" do
@@ -131,6 +131,14 @@ class FeedHandlerTest < ActiveSupport::TestCase
       handler.process(container)
 
       assert container.enabled, 'must reenable container after <disabled_period> (%s)' % container_class
+    end
+
+    should "handle a feed that was never fetched successfully (#{container_class})" do
+      container = create(container_class)
+      container.update_errors = FeedHandler.max_errors + 1
+      container.fetched_at = nil
+      handler.expects(:actually_process_container).with(container)
+      handler.process(container)
     end
   end
 

@@ -1,4 +1,5 @@
 require_dependency 'noosfero'
+require 'noosfero/plugin/parent_methods'
 
 class Noosfero::Plugin
 
@@ -8,15 +9,15 @@ class Noosfero::Plugin
     self.context = context
   end
 
+  def environment
+    context.environment if self.context
+  end
+
   class << self
 
-    attr_writer :should_load
+    include Noosfero::Plugin::ParentMethods
 
-    # Called for each ActiveRecord class with parents
-    # See http://apidock.com/rails/ActiveRecord/ModelSchema/ClassMethods/full_table_name_prefix
-    def table_name_prefix
-      @table_name_prefix ||= "#{name.to_s.underscore}_"
-    end
+    attr_writer :should_load
 
     def should_load
       @should_load.nil? && true || @boot
@@ -35,6 +36,7 @@ class Noosfero::Plugin
       # filters must be loaded after all extensions
       klasses.each do |plugin|
         load_plugin_filters plugin
+        load_plugin_hotspots plugin
       end
     end
 
@@ -87,8 +89,14 @@ class Noosfero::Plugin
       end
     end
 
-    def load_plugin(plugin_name)
-      (plugin_name.to_s.camelize + 'Plugin').constantize
+    def load_plugin_identifier identifier
+      klass = identifier.to_s.camelize.constantize
+      klass = klass.const_get :Base if klass.class == Module
+      klass
+    end
+
+    def load_plugin public_name
+      load_plugin_identifier "#{public_name.to_s.camelize}Plugin"
     end
 
     # This is a generic method that initialize any possible filter defined by a
@@ -108,22 +116,40 @@ class Noosfero::Plugin
       end
     end
 
+    # This is a generic method to extend the hotspots list with plugins
+    # hotspots. This allows plugins to extend other plugins.
+    # To use this, the plugin must define its hotspots inside a module Hotspots.
+    # Its also needed to include Noosfero::Plugin::HotSpot module
+    # in order to dispatch plugins methods.
+    #
+    # Checkout FooPlugin for usage example.
+    def load_plugin_hotspots(plugin)
+      ActionDispatch::Reloader.to_prepare do
+        begin
+          module_name = "#{plugin.name}::Hotspots"
+          Noosfero::Plugin.send(:include, module_name.constantize)
+        rescue NameError
+        end
+      end
+    end
+
     def add_controller_filters(controller_class, plugin, filters)
       unless filters.is_a?(Array)
         filters = [filters]
       end
       filters.each do |plugin_filter|
-        filter_method = (plugin.name.underscore.gsub('/','_') + '_' + plugin_filter[:method_name]).to_sym
-        controller_class.send(plugin_filter[:type], filter_method, (plugin_filter[:options] || {}))
-        controller_class.send(:define_method, filter_method) do
-          instance_exec(&plugin_filter[:block]) if environment.plugin_enabled?(plugin)
-        end
+        plugin_filter[:options] ||= {}
+        plugin_filter[:options][:if] = -> { environment.plugin_enabled? plugin.module_name }
+
+        filter_method = "#{plugin.identifier}_#{plugin_filter[:method_name]}".to_sym
+        controller_class.send plugin_filter[:type], filter_method, plugin_filter[:options]
+        controller_class.send :define_method, filter_method, &plugin_filter[:block]
       end
     end
 
     def load_plugin_extensions(dir)
       ActionDispatch::Reloader.to_prepare do
-        Dir[File.join(dir, 'lib', 'ext', '*.rb')].each {|file| require_dependency file }
+        Dir[File.join(dir, 'lib', 'ext', '*.rb')].each{ |file| require_dependency file }
       end
     end
 
@@ -131,7 +157,7 @@ class Noosfero::Plugin
       unless @available_plugins
         path = File.join(Rails.root, '{baseplugins,config/plugins}', '*')
         @available_plugins = Dir.glob(path).select{ |i| File.directory?(i) }
-        if Rails.env.test? && !@available_plugins.include?(File.join(Rails.root, 'config', 'plugins', 'foo'))
+        if (Rails.env.test? || Rails.env.cucumber?) && !@available_plugins.include?(File.join(Rails.root, 'config', 'plugins', 'foo'))
           @available_plugins << File.join(Rails.root, 'plugins', 'foo')
         end
       end
@@ -145,39 +171,10 @@ class Noosfero::Plugin
     def all
       @all ||= available_plugins.map{ |dir| (File.basename(dir) + "_plugin").camelize }
     end
+  end
 
-    def public_name
-      self.name.underscore.gsub('_plugin','')
-    end
-
-    def public_path(file = '')
-      File.join('/plugins', public_name, file)
-    end
-
-    def root_path
-      Rails.root.join('plugins', public_name)
-    end
-
-    def view_path
-      File.join(root_path,'views')
-    end
-
-    # Here the developer should specify the meta-informations that the plugin can
-    # inform.
-    def plugin_name
-      self.name.underscore.humanize
-    end
-    def plugin_description
-      _("No description informed.")
-    end
-
-    def admin_url
-      {:controller => "#{name.underscore}_admin", :action => 'index'}
-    end
-
-    def has_admin_url?
-      File.exists?(File.join(root_path, 'controllers', "#{name.underscore}_admin_controller.rb"))
-    end
+  def has_block?(block)
+    self.class.extra_blocks.keys.include?(block)
   end
 
   def expanded_template(file_path, locals = {})
@@ -231,10 +228,11 @@ class Noosfero::Plugin
   end
 
   # -> Adds buttons to the control panel
-  # returns = { :title => title, :icon => icon, :url => url }
-  #   title = name that will be displayed.
-  #   icon  = css class name (for customized icons include them in a css file).
-  #   url   = url or route to which the button will redirect.
+  # returns        = { :title => title, :icon => icon, :url => url }
+  #   title        = name that will be displayed.
+  #   icon         = css class name (for customized icons include them in a css file).
+  #   url          = url or route to which the button will redirect.
+  #   html_options = aditional html options.
   def control_panel_buttons
     nil
   end
@@ -243,6 +241,16 @@ class Noosfero::Plugin
   # (overwrites profile_image_link function)
   # returns = lambda block that creates html code.
   def profile_image_link(profile, size, tag, extra_info)
+    nil
+  end
+
+  # -> Customize the way comments are counted for Profiles and Environment
+  # considering more than just articles comments
+  # Used on statistic block
+  # Ex: a plugin may want that Communities receive comments themselves
+  # as evaluations
+  # returns = the number of comments to be sum on the statistics
+  def more_comments_count owner
     nil
   end
 
@@ -277,6 +285,18 @@ class Noosfero::Plugin
     nil
   end
 
+  # -> Filters the types of organizations that are shown on manage organizations
+  # returns a scope filtered by the specified type
+  def filter_manage_organization_scope type
+    nil
+  end
+
+  # -> Add new options for manage organization filters
+  # returns an array of new options
+  # i.e [[_('Type'), 'type'], [_('Type2'), 'type2']]
+  def organization_types_filter_options
+    nil
+  end
   # -> Adds content to profile editor info and settings
   # returns = lambda block that creates html code or raw rhtml/html.erb
   def profile_editor_extras
@@ -710,7 +730,7 @@ class Noosfero::Plugin
   def content_actions
     #FIXME 'new' and 'upload' only works for content_remove. It should work for
     #content_expire too.
-    %w[edit delete spread locale suggest home new upload undo]
+    %w[edit delete spread locale suggest home new upload undo clone]
   end
 
 
@@ -718,6 +738,4 @@ end
 
 require 'noosfero/plugin/hot_spot'
 require 'noosfero/plugin/manager'
-require 'noosfero/plugin/active_record'
-require 'noosfero/plugin/mailer_base'
 require 'noosfero/plugin/settings'

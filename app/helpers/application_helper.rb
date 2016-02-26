@@ -8,6 +8,10 @@ module ApplicationHelper
 
   include PermissionNameHelper
 
+  include UrlHelper
+
+  include PartialsHelper
+
   include ModalHelper
 
   include BoxesHelper
@@ -281,36 +285,6 @@ module ApplicationHelper
     concat(content_tag('div', capture(&block).to_s + tag('br', :style => 'clear: left;'), options))
   end
 
-
-  def partial_for_class_in_view_path(klass, view_path, prefix = nil, suffix = nil)
-    return nil if klass.nil?
-    name = [prefix, klass.name.underscore, suffix].compact.map(&:to_s).join('_')
-
-    search_name = String.new(name)
-    if search_name.include?("/")
-      search_name.gsub!(/(\/)([^\/]*)$/,'\1_\2')
-      name = File.join(params[:controller], name) if defined?(params) && params[:controller]
-    else
-      search_name = "_" + search_name
-    end
-
-    path = defined?(params) && params[:controller] ? File.join(view_path, params[:controller], search_name + '.html.erb') : File.join(view_path, search_name + '.html.erb')
-    return name if File.exists?(File.join(path))
-
-    partial_for_class_in_view_path(klass.superclass, view_path, prefix, suffix)
-  end
-
-  def partial_for_class(klass, prefix=nil, suffix=nil)
-    raise ArgumentError, 'No partial for object. Is there a partial for any class in the inheritance hierarchy?' if klass.nil?
-    name = klass.name.underscore
-    controller.view_paths.each do |view_path|
-      partial = partial_for_class_in_view_path(klass, view_path, prefix, suffix)
-      return partial if partial
-    end
-
-    raise ArgumentError, 'No partial for object. Is there a partial for any class in the inheritance hierarchy?'
-  end
-
   def render_profile_actions klass
     name = klass.to_s.underscore
     begin
@@ -529,32 +503,6 @@ module ApplicationHelper
     sex
   end
 
-  def profile_cat_icons( profile )
-    if profile.class == Enterprise
-      icons = profile.product_categories.unique_by_level(2).limit(3).map do |c|
-        filtered_category = c.filtered_category.blank? ? c.path.split('/').last : c.filtered_category
-        category_title = filtered_category.split(/[-_\s,.;'"]+/).map(&:capitalize).join(' ')
-        category_name = category_title.gsub(' ', '_' )
-        category_icon = "/images/icons-cat/#{category_name}.png"
-        if ! File.exists?(Rails.root.join('public', category_icon))
-          category_icon = '/images/icons-cat/undefined.png'
-        end
-        content_tag('span',
-          content_tag( 'span', category_title ),
-          :title => category_title,
-          :class => 'product-cat-icon cat_icon_' + category_name,
-          :style => "background-image:url(#{category_icon})"
-        )
-      end.join("\n").html_safe
-      content_tag('div',
-        content_tag( 'span', _('Principal Product Categories'), :class => 'header' ) +"\n"+ icons,
-        :class => 'product-category-icons'
-      )
-    else
-      ''
-    end
-  end
-
   def links_for_balloon(profile)
     if environment.enabled?(:show_balloon_with_profile_links_when_clicked)
       if profile.kind_of?(Person)
@@ -606,14 +554,25 @@ module ApplicationHelper
         trigger_class = 'enterprise-trigger'
       end
     end
-    extra_info = extra_info.nil? ? '' : content_tag( 'span', extra_info, :class => 'extra_info' )
+
+    extra_info_tag = ''
+    img_class = 'profile-image'
+
+    if extra_info.is_a? Hash
+      extra_info_tag = content_tag( 'span', extra_info[:value], :class => 'extra_info '+extra_info[:class])
+      img_class +=' '+extra_info[:class]
+    else
+      extra_info_tag = content_tag( 'span', extra_info, :class => 'extra_info' )
+    end
+
     links = links_for_balloon(profile)
     content_tag('div', content_tag(tag,
-                                   (environment.enabled?(:show_balloon_with_profile_links_when_clicked) ? popover_menu(_('Profile links'),profile.short_name,links,{:class => trigger_class, :url => url}) : "") +
+                                   (environment.enabled?(:show_balloon_with_profile_links_when_clicked) ?
+                                   popover_menu(_('Profile links'),profile.short_name,links,{:class => trigger_class, :url => url}) : "") +
     link_to(
-      content_tag( 'span', profile_image( profile, size ), :class => 'profile-image' ) +
+      content_tag( 'span', profile_image( profile, size ), :class => img_class ) +
       content_tag( 'span', h(name), :class => ( profile.class == Person ? 'fn' : 'org' ) ) +
-      extra_info + profile_sex_icon( profile ) + profile_cat_icons( profile ),
+      extra_info_tag + profile_sex_icon( profile ),
       profile.url,
       :class => 'profile_link url',
       :help => _('Click on this icon to go to the <b>%s</b>\'s home page') % profile.name,
@@ -707,10 +666,28 @@ module ApplicationHelper
     javascript_include_tag script if script
   end
 
-  def file_field_or_thumbnail(label, image, i)
+  def template_path
+    if profile.nil?
+      "/designs/templates/#{environment.layout_template}"
+    else
+      "/designs/templates/#{profile.layout_template}"
+    end
+  end
+
+  def template_javascript_src
+    script = File.join template_path, '/javascripts/template.js'
+    script if File.exists? File.join(Rails.root, 'public', script)
+  end
+
+  def templete_javascript_ng
+    script = template_javascript_src
+    javascript_include_tag script if script
+  end
+
+  def file_field_or_thumbnail(label, image, i, removable = true)
     display_form_field label, (
       render :partial => (image && image.valid? ? 'shared/show_thumbnail' : 'shared/change_image'),
-      :locals => { :i => i, :image => image }
+      :locals => { :i => i, :image => image, :removable => removable }
       )
   end
 
@@ -743,7 +720,7 @@ module ApplicationHelper
   class NoosferoFormBuilder < ActionView::Helpers::FormBuilder
     extend ActionView::Helpers::TagHelper
 
-    def self.output_field(text, field_html, field_id = nil, options = {})
+    def self.output_field(text, field_html, field_id = nil)
       # try to guess an id if none given
       if field_id.nil?
         field_html =~ /id=['"]([^'"]*)['"]/
@@ -853,7 +830,7 @@ module ApplicationHelper
       field_html += capture(&block)
     end
 
-    if controller.action_name == 'signup' || controller.action_name == 'new_community' || (controller.controller_name == "enterprise_registration" && controller.action_name == 'index')
+    if controller.action_name == 'signup' || controller.action_name == 'new_community' || (controller.controller_name == "enterprise_registration" && controller.action_name == 'index') || (controller.controller_name == 'home' && controller.action_name == 'index' && user.nil?)
       if profile.signup_fields.include?(name)
         result = field_html
       end
@@ -885,12 +862,18 @@ module ApplicationHelper
   end
 
   def base_url
-    environment.top_url(request.scheme)
+    profile ? profile.top_url(request.scheme) : environment.top_url(request.scheme)
   end
   alias :top_url :base_url
 
+  class View < ActionView::Base
+    def url_for *args
+      self.controller.url_for *args
+    end
+  end
+
   def helper_for_article(article)
-    article_helper = ActionView::Base.new
+    article_helper = View.new
     article_helper.controller = controller
     article_helper.extend ArticleHelper
     article_helper.extend Rails.application.routes.url_helpers
@@ -913,22 +896,23 @@ module ApplicationHelper
     article_helper.cms_label_for_edit
   end
 
+  def label_for_clone_article(article)
+    translated_types = {
+      Folder => _('Folder'),
+      Blog => _('Blog'),
+      Event => _('Event'),
+      Forum => _('Forum')
+    }
+
+    translated_type = translated_types[article.class] || _('Article')
+
+    _('Clone %s') % translated_type
+  end
+
   def add_rss_feed_to_head(title, url)
     content_for :feeds do
       tag(:link, :rel => 'alternate', :type => 'application/rss+xml', :title => title, :href => url_for(url))
     end
-  end
-
-  def icon_theme_stylesheet_path
-    icon_themes = []
-    theme_icon_themes = theme_option(:icon_theme) || []
-    for icon_theme in theme_icon_themes do
-      theme_path = "/designs/icons/#{icon_theme}/style.css"
-      if File.exists?(Rails.root.join('public', theme_path[1..-1]))
-        icon_themes << theme_path
-      end
-    end
-    icon_themes
   end
 
   def page_title
@@ -1112,7 +1096,7 @@ module ApplicationHelper
   alias :browse_communities_menu :search_communities_menu
 
   def pagination_links(collection, options={})
-    options = {:previous_label => '&laquo; ' + _('Previous'), :next_label => _('Next') + ' &raquo;'}.merge(options)
+    options = {:previous_label => content_tag(:span, '&laquo; ', :class => 'previous-arrow') + _('Previous'), :next_label => _('Next') + content_tag(:span, ' &raquo;', :class => 'next-arrow'), :inner_window => 1, :outer_window => 0 }.merge(options)
     will_paginate(collection, options)
   end
 
@@ -1166,7 +1150,7 @@ module ApplicationHelper
       pending_tasks_count = link_to(count.to_s, user.tasks_url, :id => 'pending-tasks-count', :title => _("Manage your pending tasks"))
     end
 
-    (_("<span class='welcome'>Welcome,</span> %s") % link_to("<i style='background-image:url(#{user.profile_custom_icon(gravatar_default)})'></i><strong>#{user.identifier}</strong>", user.public_profile_url, :id => "homepage-link", :title => _('Go to your homepage'))) +
+    (_("<span class='welcome'>Welcome,</span> %s") % link_to("<i style='background-image:url(#{user.profile_custom_icon(gravatar_default)})'></i><strong>#{user.identifier}</strong>", user.url, :id => "homepage-link", :title => _('Go to your homepage'))) +
     render_environment_features(:usermenu) +
     admin_link +
     manage_enterprises +
@@ -1196,35 +1180,6 @@ module ApplicationHelper
     list.sort.inject(Hash.new(0)){|h,i| h[i] += 1; h }.collect{ |x, n| [n, connector, x].join(" ") }.sort
   end
 
-  #FIXME Use time_ago_in_words instead of this method if you're using Rails 2.2+
-  def time_ago_as_sentence(from_time, include_seconds = false)
-    to_time = Time.now
-    from_time = Time.parse(from_time.to_s)
-    from_time = from_time.to_time if from_time.respond_to?(:to_time)
-    to_time = to_time.to_time if to_time.respond_to?(:to_time)
-    distance_in_minutes = (((to_time - from_time).abs)/60).round
-    distance_in_seconds = ((to_time - from_time).abs).round
-    case distance_in_minutes
-      when 0..1
-        return (distance_in_minutes == 0) ? _('less than a minute') : _('1 minute') unless include_seconds
-        case distance_in_seconds
-          when 0..4   then _('less than 5 seconds')
-          when 5..9   then _('less than 10 seconds')
-          when 10..19 then _('less than 20 seconds')
-          when 20..39 then _('half a minute')
-          when 40..59 then _('less than a minute')
-          else             _('1 minute')
-        end
-
-      when 2..44           then _('%{distance} minutes ago') % { :distance => distance_in_minutes }
-      when 45..89          then _('about 1 hour ago')
-      when 90..1439        then _('about %{distance} hours ago') % { :distance => (distance_in_minutes.to_f / 60.0).round }
-      when 1440..2879      then _('1 day ago')
-      when 2880..10079     then _('%{distance} days ago') % { :distance => (distance_in_minutes / 1440).round }
-      else                      show_time(from_time)
-    end
-  end
-
   def comment_balloon(options = {}, &block)
     wrapper = content_tag(:div, capture(&block), :class => 'comment-balloon-content')
     (1..8).to_a.reverse.each { |i| wrapper = content_tag(:div, wrapper, :class => "comment-wrapper-#{i}") }
@@ -1243,7 +1198,7 @@ module ApplicationHelper
 
   def task_information(task)
     values = {}
-    values.merge!({:requestor => link_to(task.requestor.name, task.requestor.public_profile_url)}) if task.requestor
+    values.merge!({:requestor => link_to(task.requestor.name, task.requestor.url)}) if task.requestor
     values.merge!({:subject => content_tag('span', task.subject, :class=>'task_target')}) if task.subject
     values.merge!({:linked_subject => link_to(content_tag('span', task.linked_subject[:text], :class => 'task_target'), task.linked_subject[:url])}) if task.linked_subject
     values.merge!(task.information[:variables]) if task.information[:variables]
@@ -1297,7 +1252,7 @@ module ApplicationHelper
   end
 
   def cache_timeout(key, timeout, &block)
-    cache(key, { :expires_in => timeout }, &block)
+    cache(key, { :expires_in => timeout, :skip_digest => true }, &block)
   end
 
   def is_cache_expired?(key)
@@ -1326,7 +1281,12 @@ module ApplicationHelper
       options[:class] = (options[:class] || '') + ' disabled'
       content_tag('a', '&nbsp;'+content_tag('span', content), options)
     else
-      link_to content, url, options
+      if options[:modal]
+        options.delete(:modal)
+        modal_link_to content, url, options
+      else
+        link_to content, url, options
+      end
     end
   end
 
@@ -1490,6 +1450,28 @@ module ApplicationHelper
 
   def colorpicker_field(object_name, method, options = {})
     text_field(object_name, method, options.merge(:class => 'colorpicker_field'))
+  end
+
+  def fullscreen_buttons(itemId)
+    content="
+      <script>fullscreenPageLoad('#{itemId}')</script>
+    "
+    content+=content_tag('a', content_tag('span',_("Full screen")),
+    { :id=>"fullscreen-btn",
+      :onClick=>"toggle_fullwidth('#{itemId}')",
+      :class=>"button with-text icon-fullscreen",
+      :href=>"#",
+      :title=>_("Go to full screen mode")
+    })
+
+    content+=content_tag('a', content_tag('span',_("Exit full screen")),
+    { :style=>"display: none;",
+      :id=>"exit-fullscreen-btn",
+      :onClick=>"toggle_fullwidth('#{itemId}')",
+      :class=>"button with-text icon-fullscreen",
+      :href=>"#",
+      :title=>_("Exit full screen mode")
+    })
   end
 
 end
