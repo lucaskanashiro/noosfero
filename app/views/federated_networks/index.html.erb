@@ -1,0 +1,38 @@
+<h1><%= _('Manage federated networks') %></h1>
+
+
+<% if not @networks.empty? %>
+ <p>
+  <%= _('Select which federated networks you want to enable in your environment') %>
+ </p>
+
+ <%= labelled_form_for(:environment, :url => {:action => 'save_networks'})  do |f| %>
+  <table>
+     <% @networks.each do |network| %>
+       <tr>
+           <td style='vertical_align: top'>
+            <%= check_box_tag "environment[federated_networks][]", network.id,
+              @environment.federated_networks.exists?(network.id),
+              :id => "federated_network_#{network.id}" %></td>
+           <td>
+           <%= hidden_field_tag('environment[federated_networks][]', '') %>
+           <% if not  network.name.blank? %>
+             <strong><%= network.name %></strong>
+           <% else %>
+             <strong><%= network.url %></strong>
+           <% end %>
+         </td>
+       </tr>
+     <% end %>
+   </table>
+
+   <div>
+     <% button_bar do %>
+       <%= submit_button('save', _('Save changes')) %>
+       <%= button :back, _('Back to admin panel'), :controller => 'admin_panel', :action => 'index' %>
+   <% end %>
+   </div>
+  <% end %>
+<% else %>
+ <p> <%= _('No federated networks available') %> </p>
+<% end %>

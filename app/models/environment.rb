@@ -22,6 +22,9 @@ class Environment < ActiveRecord::Base
     false
   end
 
+  has_many :environment_federated_networks, :dependent => :destroy
+  has_many :federated_networks,  :through => :environment_federated_networks
+
   has_many :tasks, :dependent => :destroy, :as => 'target'
   has_many :search_terms, :as => :context
   has_many :custom_fields, :dependent => :destroy
